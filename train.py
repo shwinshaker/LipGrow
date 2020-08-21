@@ -148,34 +148,36 @@ if args.mode == 'adapt':
 # Validate dataset
 assert args.dataset in ['cifar10', 'cifar100', 'imagenet', 'tiny-imagenet'], args.dataset
 
-# Use CUDA
-os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
-use_cuda = torch.cuda.is_available()
-if use_cuda:
-    device = torch.device("cuda:0")
-else:
-    device = "cpu"
-
-# Random seed
-if args.manualSeed is None:
-    args.manualSeed = random.randint(1, 10000)
-random.seed(args.manualSeed)
-torch.manual_seed(args.manualSeed)
-if use_cuda:
-    torch.cuda.manual_seed_all(args.manualSeed)
-
-# save best accuracy
-best_val_acc = 0  # best test accuracy
 
 def main():
+
+    # Use CUDA
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    cudnn.benchmark = True
+
+    # Random seed
+    if args.manualSeed is None:
+        args.manualSeed = random.randint(1, 10000)
+    random.seed(args.manualSeed)
+    torch.manual_seed(args.manualSeed)
+    if use_cuda:
+        torch.cuda.manual_seed_all(args.manualSeed)
+
+    # If parallel training
+    def to_parallel(model)
+        if torch.cuda.device_count() > 1:
+            print("Let's use", torch.cuda.device_count(), "GPUs!")
+            return torch.nn.DataParallel(model)
+        return model
+
     time_start = time.time()
 
-    global best_val_acc
+    best_val_acc = 0  # best test accuracy
     best_epoch = 0
 
     if not os.path.isdir(args.checkpoint):
         mkdir_p(args.checkpoint)
-
 
     # Load dataset
     trainloader, valloader, testloader = get_loaders(dataset=args.dataset,
@@ -198,12 +200,7 @@ def main():
         model = models.__dict__[args.arch](num_classes=num_classes)
     print("     Total params: %.2fM" % (sum(p.numel() for p in model.parameters())/1000000.0))
 
-    # if use_cuda:
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        model = torch.nn.DataParallel(model)
-    model.to(device) # --
-    cudnn.benchmark = True
+    to_parallel(model).to(device)
 
     # evaluation mode
     if args.evaluate:
@@ -232,43 +229,35 @@ def main():
     else:
         raise KeyError(args.scheduler)
 
-    # Resume
+    # set info logger
     title = args.dataset + '-' + args.arch
     logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
-    logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Test Loss', 'Train Acc.', 'Valid Acc.', 'Test Acc.'])
+    logger.set_names(['Epoch', 'Time Elapsed', 'Learning Rate', 'Train Loss', 'Valid Loss', 'Test Loss', 'Train Acc.', 'Valid Acc.', 'Test Acc.'])
 
     # ---------- grow -----------
     # model architecture tracker
     modelArch=None
     if args.grow:
         modelArch = ModelArch(args.arch, model, args.epochs, args.depth, max_depth=args.max_depth, dpath=args.checkpoint, operation=args.grow_operation, atom=args.grow_atom, dataset=args.dataset)
-    # timer
-    timeLogger = Logger(os.path.join(args.checkpoint, 'timer.txt'), title=title)
-    timeLogger.set_names(['epoch', 'training-time(min)', 'end-time(min)'])
 
     # grow trigger
     if args.grow and args.mode == 'adapt':
         trigger = TolTrigger(tolerance=args.threshold, window=args.window, reserve=args.reserve, epochs=args.epochs, modelArch=modelArch)
 
     # Train and val
-    epoch_start = time.time()
+    time_start = time.time()
     for epoch in range(args.epochs):
 
-        # record the training time
-        end = time.time()
-        if not regularizer:
-            train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda,
-                                          debug_batch_size=args.debug_batch_size)
-        else:
-            train_loss, regular_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda)
-        train_end = time.time()
+        train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda,
+                                        debug_batch_size=args.debug_batch_size)
 
         # errs = hooker.output(epoch, archs=modelArch.arch, atom=args.err_atom, scale=args.scale)
         val_loss, val_acc = test(valloader, model, criterion, epoch, use_cuda, hooker)
         test_loss, test_acc = test(testloader, model, criterion, epoch, use_cuda, hooker=None)
 
-        print('\nEpoch: [%d | %d] LR: %f Train-Loss: %.4f Val-Loss: %.4f Train-Acc: %.4f Val-Acc: %.4f' % (epoch + 1, args.epochs, scheduler.lr_(), train_loss, val_loss, train_acc, val_acc))
-        logger.append([scheduler.lr_(), train_loss, val_loss, test_loss, train_acc, val_acc, test_acc])
+        # print('\nEpoch: [%d | %d] LR: %f Train-Loss: %.4f Val-Loss: %.4f Train-Acc: %.4f Val-Acc: %.4f' % (epoch + 1, args.epochs, scheduler.lr_(), train_loss, val_loss, train_acc, val_acc))
+        logger.append([epoch, (time.time() - time_start)/60., scheduler.lr_(),
+                       train_loss, val_loss, test_loss, train_acc, val_acc, test_acc])
 
         # save model
         is_best = val_acc > best_val_acc
@@ -308,11 +297,7 @@ def main():
                     model = models.__dict__[args.arch](num_classes=num_classes,
                                                        block_name=args.block_name,
                                                        archs=modelArch.arch)
-                    if torch.cuda.device_count() > 1:
-                        print("Let's use", torch.cuda.device_count(), "GPUs!")
-                        model = torch.nn.DataParallel(model)
-                    model.to(device) # --
-
+                    to_parallel(model).to(device)
                     model.load_state_dict(modelArch.state_dict.state_dict, strict=False) # True) # False due to buffer added during training to calculate lipschitz
                     # optimizer = optim.SGD(model.parameters(), lr=state['lr'], momentum=args.momentum, weight_decay=args.weight_decay)
                     # if cosine
@@ -349,11 +334,7 @@ def main():
                         model = models.__dict__[args.arch](num_classes=num_classes,
                                                            block_name=args.block_name,
                                                            archs=modelArch.arch)
-                        if torch.cuda.device_count() > 1:
-                            print("Let's use", torch.cuda.device_count(), "GPUs!")
-                            model = torch.nn.DataParallel(model)
-                        model.to(device)
-
+                        to_parallel(model).to(device)
                         model.load_state_dict(modelArch.state_dict.state_dict, strict=False) # not strict matching due to Lipschitz buffer
                         if args.scheduler == 'cosine':
                             # cosine for adapt, no schedule will be provided
@@ -370,7 +351,6 @@ def main():
             else:
                 raise KeyError('Grow mode %s not supported!' % args.mode)
 
-        timeLogger.append([epoch, (train_end - end)/60, (time.time() - epoch_start)/60])
 
     scheduler.close()
     if args.hooker:
