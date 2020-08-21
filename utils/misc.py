@@ -5,6 +5,7 @@
 '''
 import errno
 import os
+import shutil
 import sys
 import time
 import math
@@ -14,7 +15,9 @@ import torch.nn as nn
 import torch.nn.init as init
 from torch.autograd import Variable
 
-__all__ = ['get_mean_and_std', 'init_params', 'mkdir_p', 'AverageMeter', 'str2bool', 'reduce_list', 'is_powerOfTwo']
+__all__ = ['get_mean_and_std', 'init_params', 'mkdir_p',
+           'AverageMeter', 'str2bool', 'reduce_list', 'is_powerOfTwo',
+           'save_checkpoint']
 
 
 def get_mean_and_std(dataset):
@@ -117,3 +120,9 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='checkpoint.pth.tar'):
+    filepath = os.path.join(checkpoint, filename)
+    torch.save(state, filepath)
+    if is_best:
+        shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth.tar'))

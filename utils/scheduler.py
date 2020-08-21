@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from torch.optim.lr_scheduler import _LRScheduler, MultiStepLR, CosineAnnealingLR, ExponentialLR
 import os
 from . import Logger
+import warnings
 
 # __all__ = ['ConstantLR', 'MultiStepLR_', 'MultiStepCosineLR', 'ExponentialLR_']
 
@@ -71,7 +72,7 @@ def step(**kwargs):
     return MultiStepLR_(**kwargs)
 
 
-import warnings
+
 class MultiStepCosineLR(CosineAnnealingLR):
 
     def __init__(self, optimizer, milestones, epochs, eta_min=0.001, dpath='.'):
@@ -142,7 +143,7 @@ class AdaptMultiStepCosineLR(CosineAnnealingLR):
 
         lrs = self.get_lr()
         assert(len(set(lrs)) == 1), 'unexpected number of unique lrs!'
-        # self.logger.append([epoch, lrs[0]])
+        # self.logger.append([epoch, lrs[0]])a
 
         if self.milestones and epoch == self.milestones[0] - 1:
             self.last_epoch = -1 # because step will increment last_epoch 

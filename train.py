@@ -2,6 +2,7 @@
 Training script for CIFAR-10/100
 Copyright (c) Wei YANG, 2017
 '''
+
 from __future__ import print_function
 
 import argparse
@@ -18,18 +19,12 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import torch.utils.data as data
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 
-from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
-from utils import ModelHooker, Trigger, MinTrigger, ConvergeTrigger, MoveMinTrigger, MinTolTrigger, TolTrigger
-from utils import LipHooker
-from utils import ModelArch
-from utils import str2bool, is_powerOfTwo
-
+from pipeline import get_loaders
+from utils import mkdir_p
+from utils import LipHooker, ModelArch, TolTrigger
+from utils import str2bool, is_powerOfTwo, save_checkpoint
 from utils import scheduler as schedulers
-from utils import regularizer as regularizers
 
 import warnings
 
@@ -178,169 +173,22 @@ def main():
     global best_val_acc
     best_epoch = 0
 
-    start_epoch = args.start_epoch  # start from epoch 0 or last checkpoint epoch
-
     if not os.path.isdir(args.checkpoint):
         mkdir_p(args.checkpoint)
 
-    # Data
-    print('==> Preparing dataset %s' % args.dataset)
-    if args.dataset == 'cifar10':
-        dataloader = datasets.CIFAR10
-        num_classes = 10
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
 
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-    elif args.dataset == 'cifar100':
-        dataloader = datasets.CIFAR100
-        num_classes = 100
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4), # 32x32 -> 32x32
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-    elif args.dataset == 'imagenet':
-        dataloader = datasets.ImageNet
-        num_classes = 1000
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
-        transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(224), # 256 -> 224
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ])
-
-        transform_test = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])
-    elif args.dataset == 'tiny-imagenet':
-        # custom dataloader
-        num_classes = 200
-        normalize = transforms.Normalize([0.4802, 0.4481, 0.3975], [0.2302, 0.2265, 0.2262])
-        data_transforms = {
-            'train': transforms.Compose([
-                transforms.RandomRotation(20),
-                # transforms.RandomCrop(64, padding=4), # 32x32 -> 32x32
-                transforms.RandomHorizontalFlip(0.5),
-                transforms.ToTensor(),
-                normalize,
-            ]),
-            'test': transforms.Compose([
-                transforms.ToTensor(),
-                normalize,
-            ])}
-
-    else:
-        raise KeyError(args.dataset)
-
-    if args.dataset.startswith('cifar'):
-        # test set size: 10,000
-        testset = dataloader(root='./data', train=False, download=True, transform=transform_test)
-        valset = data.Subset(testset, range(len(testset)//2))
-        testset = data.Subset(testset, range(len(testset)//2+1, len(testset)))
-        valloader = data.DataLoader(valset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
-        testloader = data.DataLoader(testset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
-
-        # training set size: 50,000 - 10,000 = 40,000
-        trainset = dataloader(root='./data', train=True, download=True, transform=transform_train)
-        trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers)
-    elif args.dataset == 'imagenet':
-        # dataset size: 1000 classes * 50,000 per class
-        testset = dataloader(root='./data', split='val', download=True, transform=transform_test)
-        valset = data.Subset(testset, range(len(testset)//2))
-        testset = data.Subset(testset, range(len(testset)//2+1, len(testset)))
-        valloader = data.DataLoader(valset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
-        testloader = data.DataLoader(testset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers) # , pin_memory=True)
-
-        trainset = dataloader(root='./data', split='train', download=True, transform=transform_train)
-        trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers) # , pin_memory=True)
-    elif args.dataset == 'tiny-imagenet':
-        # dataset size:
-        #   train:  200 classes * 500 per class
-        #   val: 200 classes * 25 per class
-        #   test: 200 classes * 25 per class (original test is not labeled, split val)
-        testset = datasets.ImageFolder(os.path.join('./data/tiny-imagenet-200', 'val'), transform=data_transforms['test'])
-        valset = data.Subset(testset, range(len(testset)//2))
-        testset = data.Subset(testset, range(len(testset)//2+1, len(testset)))
-        valloader = data.DataLoader(valset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
-        testloader = data.DataLoader(testset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
-
-        trainset = datasets.ImageFolder(os.path.join('./data/tiny-imagenet-200', 'train'), transform=data_transforms['train'])
-        trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers)
-        print(type(trainloader))
-        print(len(trainloader))
-    else:
-        raise KeyError(args.dataset)
+    # Load dataset
+    trainloader, valloader, testloader = get_loaders(dataset=args.dataset,
+                                                     download=False,
+                                                     train_batch=args.train_batch,
+                                                     test_batch=args.test_batch,
+                                                     n_workers=args.workers, 
+                                                     data_dir='./data'):
 
 
     # Model
     print("==> creating model '{}'".format(args.arch))
-    if args.arch.startswith('resnext'):
-        model = models.__dict__[args.arch](
-                    cardinality=args.cardinality,
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    widen_factor=args.widen_factor,
-                    dropRate=args.drop,
-                )
-    elif args.arch.startswith('densenet'):
-        model = models.__dict__[args.arch](
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    growthRate=args.growthRate,
-                    compressionRate=args.compressionRate,
-                    dropRate=args.drop,
-                )
-    elif args.arch.startswith('wrn'):
-        model = models.__dict__[args.arch](
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    widen_factor=args.widen_factor,
-                    dropRate=args.drop,
-                )
-    elif args.arch.startswith('resnet'):
-        model = models.__dict__[args.arch](
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    block_name=args.block_name,
-                )
-    elif args.arch.startswith('midnet'):
-        model = models.__dict__[args.arch](
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    block_name=args.block_name,
-                )
-    elif args.arch.startswith('preresnet'):
-        model = models.__dict__[args.arch](
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    block_name=args.block_name,
-                )
-    elif args.arch.startswith('accnet'):
-        model = models.__dict__[args.arch](
-                    num_classes=num_classes,
-                    depth=args.depth,
-                    block_name=args.block_name,
-                )
-    elif args.arch.startswith('transresnet'):
+    if args.arch.startswith('resnet') or args.arch.startswith('preresnet'):
         model = models.__dict__[args.arch](
                     num_classes=num_classes,
                     depth=args.depth,
@@ -348,27 +196,26 @@ def main():
                 )
     else:
         model = models.__dict__[args.arch](num_classes=num_classes)
+    print("     Total params: %.2fM" % (sum(p.numel() for p in model.parameters())/1000000.0))
 
     # if use_cuda:
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
-        model = torch.nn.DataParallel(model) # .cuda()
-    # model.cuda()
+        model = torch.nn.DataParallel(model)
     model.to(device) # --
     cudnn.benchmark = True
 
-    hooker = None
-    if args.hooker:
-        if args.hooker == 'Model':
-            # model hooker
-            hooker = ModelHooker(args.arch, args.checkpoint, atom=args.err_atom, scale=args.scale,
-                                 scale_stepsize=args.scale_stepsize, device=device,
-                                 trace=args.trace)
-        elif args.hooker == 'Lip':
-            hooker = LipHooker(args.arch, args.checkpoint, resume=args.resume, device=device)
-        else:
-            raise KeyError(args.hooker)
-        hooker.hook(model)
+    # evaluation mode
+    if args.evaluate:
+        print('\nEvaluation only')
+        test_loss, test_acc = test(testloader, model, criterion, use_cuda)
+        print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
+        return
+
+    # get model Lipschitz in hooker
+    print("==> set Lipschitz hooker ")
+    hooker = LipHooker(args.arch, args.checkpoint, resume=args.resume, device=device)
+    hooker.hook(model)
 
     # criterion and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -380,99 +227,15 @@ def main():
         scheduler = schedulers.__dict__[args.scheduler](optimizer=optimizer, dpath=args.checkpoint)
     elif args.scheduler.startswith('step'):
         scheduler = schedulers.__dict__[args.scheduler](optimizer=optimizer, milestones=args.schedule, gamma=args.gamma, dpath=args.checkpoint)
-    elif args.scheduler.startswith('cosine') or args.scheduler == 'adacosine':
+    elif 'cosine' in args.scheduler:
         scheduler = schedulers.__dict__[args.scheduler](optimizer=optimizer, milestones=args.schedule, epochs=args.epochs, dpath=args.checkpoint)
-    elif args.scheduler.startswith('expo'):
-        scheduler = schedulers.__dict__[args.scheduler](optimizer=optimizer, gamma=args.gamma, dpath=args.checkpoint)
-    elif args.scheduler.startswith('adapt'):
-        scheduler = schedulers.__dict__[args.scheduler](optimizer=optimizer, gamma=args.gamma, dpath=args.checkpoint)
-    elif args.scheduler.startswith('acosine'):
-        scheduler = schedulers.__dict__[args.scheduler](optimizer=optimizer, epochs=args.epochs, dpath=args.checkpoint)
     else:
         raise KeyError(args.scheduler)
 
-    # custom regularization
-    regularizer = None
-    if args.regularization:
-        print("==> creating regularizer '{}'".format(args.regularization))
-        if args.regularization.startswith('truncate_error'):
-            regularizer= regularizers.__dict__[args.regularization](hooker=hooker, r_gamma=args.r_gamma)
-        else:
-            raise KeyError(args.regularization)
-
-    # print information
-    print("     ----------------------------- %s ----------------------------------" % args.arch)
-    print("     depth: %i" % args.depth)
-    print(model)
-    print("     ----------------------------------------------------------------------")
-    print("     dataset: %s" % args.dataset)
-
-    print("     --------------------------- hypers ----------------------------------")
-    print("     Epochs: %i" % args.epochs)
-    print("     Train batch size: %i" % args.train_batch)
-    print("     Test batch size: %i" % args.test_batch)
-    print("     Learning rate: %g" % args.lr)
-    print("     Momentum: %g" % args.momentum)
-    print("     Weight decay: %g" % args.weight_decay)
-    print("     Learning rate scheduler: %s" % args.scheduler)  # 'multi-step cosine annealing schedule'
-    if args.scheduler in ['step', 'cosine', 'adacosine']:
-        print("     Learning rate schedule - milestones: ", args.schedule)
-    if args.scheduler in ['step', 'expo', 'adapt']:
-        print("     Learning rate decay factor: %g" % args.gamma)
-    if args.regularization:
-        print("     Regularization: %s" % args.regularization)
-        print("     Regularization coefficient: %g" % args.r_gamma)
-    print("     gpu id: %s" % args.gpu_id)
-    print("     num workers: %i" % args.workers)
-    print("     hooker: ", args.hooker)
-    print("     trace: ", args.trace)
-    print("     --------------------------- model ----------------------------------")
-    print("     Model: %s" % args.arch)
-    print("     depth: %i" % args.depth)
-    print("     block: %s" % args.block_name)
-    print("     Total params: %.2fM" % (sum(p.numel() for p in model.parameters())/1000000.0))
-    if args.grow:
-        if not args.arch in ['resnet', 'transresnet', 'preresnet']:
-            raise KeyError("model not supported for growing yet.")
-        print("     --------------------------- growth ----------------------------------")
-        print("     grow mode: %s" % args.mode)
-        print("     grow atom: %s" % args.grow_atom)
-        print("     grow operation: %s" % args.grow_operation)
-        print("     stepsize scaled residual: %s" % args.scale_stepsize)
-        if args.mode == 'fixed':
-            print("     grow milestones: ", args.grow_epoch)
-        else:
-            print("     max depth: %i" % args.max_depth)
-            print("     scaled down err: %s" % args.scale)
-            print("     err atom: %s" % args.err_atom)
-            print("     err threshold: %g" % args.threshold)
-            print("     smoothing scope: %i" % args.window)
-            print("     reserved epochs: %i" % args.reserve)
-            print("     err back track history (deprecated): %i" % args.backtrack)
-    if args.debug_batch_size:
-        print("     -------------------------- debug ------------------------------------")
-        print("     debug batches: %i" % args.debug_batch_size)
-    print("     ---------------------------------------------------------------------")
-
     # Resume
     title = args.dataset + '-' + args.arch
-    if args.resume:
-        # Load checkpoint.
-        print('==> Resuming from checkpoint..')
-        assert os.path.isfile(args.resume), 'Error: no checkpoint directory found!'
-        args.checkpoint = os.path.dirname(args.resume)
-        checkpoint = torch.load(args.resume)
-        best_val_acc = checkpoint['best_val_acc']
-        start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title, resume=True)
-    else:
-        logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
-        if args.regularization:
-            logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Test Loss', 'Train Acc.', 'Valid Acc.', 'Test Acc.', 'Regular Loss'])
-        else:
-            logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Test Loss', 'Train Acc.', 'Valid Acc.', 'Test Acc.'])
+    logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
+    logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Test Loss', 'Train Acc.', 'Valid Acc.', 'Test Acc.'])
 
     # ---------- grow -----------
     # model architecture tracker
@@ -483,37 +246,21 @@ def main():
     timeLogger = Logger(os.path.join(args.checkpoint, 'timer.txt'), title=title)
     timeLogger.set_names(['epoch', 'training-time(min)', 'end-time(min)'])
 
-    # trigger
+    # grow trigger
     if args.grow and args.mode == 'adapt':
-        # trigger = Trigger(window=args.window, backtrack=args.backtrack, thresh=args.threshold, smooth='median') # test
-        # trigger = MinTrigger(thresh=args.threshold, smooth='median', atom=args.grow_atom, err_atom=args.err_atom) # test
-        # trigger = MinTrigger(window=args.window, epochs=args.epochs) # test
-        # trigger = MinTolTrigger(tolerance=args.threshold, window=args.window, reserve=args.reserve, epochs=args.epochs) # test
-        trigger = TolTrigger(tolerance=args.threshold, window=args.window, reserve=args.reserve, epochs=args.epochs, modelArch=modelArch) # test
-        # trigger = ConvergeTrigger(smooth='median', atom=args.grow_atom, err_atom=args.err_atom, window=args.window, backtrack=args.backtrack, thresh=args.threshold) # test
-        # trigger = MoveMinTrigger(smooth='min', window=args.window, epochs=args.epochs) # test
-
-    # evaluation mode
-    if args.evaluate:
-        print('\nEvaluation only')
-        test_loss, test_acc = test(testloader, model, criterion, start_epoch, use_cuda)
-        print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
-        return
+        trigger = TolTrigger(tolerance=args.threshold, window=args.window, reserve=args.reserve, epochs=args.epochs, modelArch=modelArch)
 
     # Train and val
     epoch_start = time.time()
+    for epoch in range(args.epochs):
 
-    for epoch in range(start_epoch, args.epochs):
-        # adjust_learning_rate(optimizer, args.)
-
-        # count the training time only
+        # record the training time
         end = time.time()
         if not regularizer:
             train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda,
-                                          regularizer=regularizer)
+                                          debug_batch_size=args.debug_batch_size)
         else:
-            train_loss, regular_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda,
-                                                        regularizer=regularizer)
+            train_loss, regular_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda)
         train_end = time.time()
 
         # errs = hooker.output(epoch, archs=modelArch.arch, atom=args.err_atom, scale=args.scale)
@@ -521,11 +268,7 @@ def main():
         test_loss, test_acc = test(testloader, model, criterion, epoch, use_cuda, hooker=None)
 
         print('\nEpoch: [%d | %d] LR: %f Train-Loss: %.4f Val-Loss: %.4f Train-Acc: %.4f Val-Acc: %.4f' % (epoch + 1, args.epochs, scheduler.lr_(), train_loss, val_loss, train_acc, val_acc))
-        # append logger file
-        if not regularizer:
-            logger.append([scheduler.lr_(), train_loss, val_loss, test_loss, train_acc, val_acc, test_acc])
-        else:
-            logger.append([scheduler.lr_(), train_loss, val_loss, test_loss, train_acc, val_acc, test_acc, regular_loss])
+        logger.append([scheduler.lr_(), train_loss, val_loss, test_loss, train_acc, val_acc, test_acc])
 
         # save model
         is_best = val_acc > best_val_acc
@@ -540,12 +283,6 @@ def main():
                 'optimizer' : optimizer.state_dict(),
             }, is_best, checkpoint=args.checkpoint)
 
-        # activations trace
-        ## it's not clear should do this for training or for testing. Chang did for test.
-        '''
-            try it for training set?
-                costs
-        '''
         '''
             sometime wrap the following into a grower
                 then `grower.step()`
@@ -558,7 +295,6 @@ def main():
         errs = None
         if args.hooker:
             errs = hooker.output(epoch)
-            # errs = hooker.draw(epoch, archs=modelArch.arch)
 
         # learning rate scheduler
         scheduler.step_(epoch, errs)
@@ -566,21 +302,18 @@ def main():
         if args.grow:
             if args.mode == 'fixed':
                 # existed method
-                if epoch+1 in args.grow_epoch: # justin 12.14: changed `epoch` to `epoch+1`
+                if epoch + 1 in args.grow_epoch:
                     modelArch.grow(1)
                     print('New archs: %s' % modelArch)
                     model = models.__dict__[args.arch](num_classes=num_classes,
                                                        block_name=args.block_name,
                                                        archs=modelArch.arch)
-                    # if use_cuda:
-                    #     model.cuda()
                     if torch.cuda.device_count() > 1:
                         print("Let's use", torch.cuda.device_count(), "GPUs!")
-                        model = torch.nn.DataParallel(model) # .cuda()
-                    # model.cuda()
+                        model = torch.nn.DataParallel(model)
                     model.to(device) # --
 
-                    model.load_state_dict(modelArch.state_dict.state_dict, strict=False) # True) # False due to buffer to calculate lipschitz
+                    model.load_state_dict(modelArch.state_dict.state_dict, strict=False) # True) # False due to buffer added during training to calculate lipschitz
                     # optimizer = optim.SGD(model.parameters(), lr=state['lr'], momentum=args.momentum, weight_decay=args.weight_decay)
                     # if cosine
                     if args.scheduler == 'cosine' and not args.schedule:
@@ -604,7 +337,6 @@ def main():
 
                 # propose candidate blocks by truncated errs of each residual block
                 trigger.feed(errs) 
-                # err_indices = trigger.trigger(modelArch.get_num_blocks_all_layer()) 
                 err_indices = trigger.trigger(epoch, modelArch.get_num_blocks_all_layer()) 
                 if err_indices:
                     # try duplicate it to see if any layer exceeds upper limit
@@ -617,16 +349,13 @@ def main():
                         model = models.__dict__[args.arch](num_classes=num_classes,
                                                            block_name=args.block_name,
                                                            archs=modelArch.arch)
-                        # if use_cuda:
-                        #     model.cuda()
                         if torch.cuda.device_count() > 1:
                             print("Let's use", torch.cuda.device_count(), "GPUs!")
-                            model = torch.nn.DataParallel(model) # .cuda()
-                        # model.cuda()
-                        model.to(device) # --
+                            model = torch.nn.DataParallel(model)
+                        model.to(device)
 
-                        model.load_state_dict(modelArch.state_dict.state_dict, strict=False) # True) # False due to Lipschitz buffer
-                        if args.scheduler == 'cosine': #  and not args.schedule:
+                        model.load_state_dict(modelArch.state_dict.state_dict, strict=False) # not strict matching due to Lipschitz buffer
+                        if args.scheduler == 'cosine':
                             # cosine for adapt, no schedule will be provided
                             optimizer = optim.SGD(model.parameters(), lr=scheduler.lr_(), momentum=args.momentum, weight_decay=args.weight_decay)
                         else:
@@ -647,21 +376,18 @@ def main():
     if args.hooker:
         hooker.close()
     timeLogger.close()
-    # err_logger.close()
     if args.grow:
         modelArch.close()
         if args.mode == 'adapt':
             trigger.close()
     logger.close()
-    # logger.plot()
-    # savefig(os.path.join(args.checkpoint, 'log.eps'))
 
     if args.grow:
         print('\nGrow epochs: ', modelArch.grow_epochs[1:], end=', ')
         print('Num parameters: ', modelArch.num_parameters, end=', ')
         print('PPE: %.2f' % modelArch._get_ppe())
 
-    # best model
+    # evaluate best model
     print('Best val acc: %.4f at %i' % (best_val_acc, best_epoch)) # this is the validation acc
     best_checkpoint = torch.load(os.path.join(args.checkpoint, 'model_best.pth.tar'))
     if args.grow:
@@ -673,12 +399,9 @@ def main():
                                                 depth=args.depth,
                                                 block_name=args.block_name)
 
-    # if use_cuda:
-    #     best_model.cuda()
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
-        best_model = torch.nn.DataParallel(best_model) # .cuda()
-    # model.cuda()
+        best_model = torch.nn.DataParallel(best_model)
     best_model.to(device) # --
     best_model.load_state_dict(best_checkpoint['state_dict'], strict=False)
 
@@ -694,160 +417,6 @@ def main():
     print('Final Test Loss:  %.4f, Final Test Acc:  %.4f' % (test_loss, test_acc))
 
     print('Wall time: %.3f mins' % ((time.time() - time_start)/60))
-
-
-def train(trainloader, model, criterion, optimizer, epoch, use_cuda, regularizer=None):
-    # switch to train mode
-    model.train()
-
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
-    losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
-    end = time.time()
-    
-    # 
-    r_losses = AverageMeter()
-
-    if args.debug_batch_size:
-        bar = Bar('Processing', max=args.debug_batch_size)
-    else:
-        bar = Bar('Processing', max=len(trainloader))
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        if args.debug_batch_size:
-            if batch_idx >= args.debug_batch_size:
-                break
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        inputs, targets = inputs.to(device), targets.to(device)
-        # if use_cuda:
-        #     inputs, targets = inputs.cuda(), targets.cuda(non_blocking=True) # async=True)
-        # inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
-
-        # compute output
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
-        if regularizer:
-            loss_ = regularizer.loss()
-            loss += loss_
-            r_losses.update(loss_.data.item(), inputs.size(0))
-
-        # measure accuracy and record loss
-        prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
-        # losses.update(loss.data[0], inputs.size(0))
-        # top1.update(prec1[0], inputs.size(0))
-        # top5.update(prec5[0], inputs.size(0))
-        losses.update(loss.data.item(), inputs.size(0))
-        top1.update(prec1.item(), inputs.size(0))
-        top5.update(prec5.item(), inputs.size(0))
-
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        # plot progress
-        bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                    batch=batch_idx + 1,
-                    size=len(trainloader),
-                    data=data_time.avg,
-                    bt=batch_time.avg,
-                    total=bar.elapsed_td,
-                    eta=bar.eta_td,
-                    loss=losses.avg,
-                    top1=top1.avg,
-                    top5=top5.avg,
-                    )
-        bar.next()
-    bar.finish()
-
-    if regularizer:
-        return (losses.avg, r_losses.avg, top1.avg)
-
-    return (losses.avg, top1.avg)
-
-def test(testloader, model, criterion, epoch, use_cuda, hooker=None):
-    '''
-        `epoch` is never used
-    '''
-    global best_val_acc
-
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
-    losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
-
-    # switch to evaluate mode
-    model.eval()
-
-    end = time.time()
-    bar = Bar('Processing', max=len(testloader))
-    for batch_idx, (inputs, targets) in enumerate(testloader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        inputs, targets = inputs.to(device), targets.to(device)
-        # if use_cuda:
-        #     inputs, targets = inputs.cuda(), targets.cuda()
-        # # inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
-        # inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
-
-        # compute output
-        with torch.no_grad():
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-            # justin: 12-27
-            if hooker == 'Model':
-                hooker.collect()
-
-        # measure accuracy and record loss
-        prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
-        # losses.update(loss.data[0], inputs.size(0))
-        # top1.update(prec1[0], inputs.size(0))
-        # top5.update(prec5[0], inputs.size(0))
-        losses.update(loss.data.item(), inputs.size(0))
-        top1.update(prec1.item(), inputs.size(0))
-        top5.update(prec5.item(), inputs.size(0))
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        # plot progress
-        bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                    batch=batch_idx + 1,
-                    size=len(testloader),
-                    data=data_time.avg,
-                    bt=batch_time.avg,
-                    total=bar.elapsed_td,
-                    eta=bar.eta_td,
-                    loss=losses.avg,
-                    top1=top1.avg,
-                    top5=top5.avg,
-                    )
-        bar.next()
-    bar.finish()
-    return (losses.avg, top1.avg)
-
-def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='checkpoint.pth.tar'):
-    filepath = os.path.join(checkpoint, filename)
-    torch.save(state, filepath)
-    if is_best:
-        shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth.tar'))
-
-# def adjust_learning_rate(optimizer, epoch):
-#     global state
-#     if epoch in args.schedule:
-#         state['lr'] *= args.gamma
-#         for param_group in optimizer.param_groups:
-#             param_group['lr'] = state['lr']
 
 if __name__ == '__main__':
     main()
