@@ -45,15 +45,15 @@ regularizer_names = sorted(name for name in regularizers.__dict__
     and callable(regularizers.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 + Imagenet Training')
+
 # Datasets
 parser.add_argument('-d', '--dataset', default='cifar10', type=str)
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
+
 # Optimization options
 parser.add_argument('--epochs', default=300, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-                    help='manual epoch number (useful on restarts)')
 parser.add_argument('--train-batch', default=128, type=int, metavar='N',
                     help='train batchsize')
 parser.add_argument('--test-batch', default=100, type=int, metavar='N',
@@ -71,56 +71,38 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
-parser.add_argument('--regularization', type=str, default=None, nargs='?', #choices=regularizer_names,
-                    help='custom regularizer type: none, truncateError')
-parser.add_argument('--r_gamma', default=1e-4, type=float, help='regularization coefficient (default: 1e-4)')
 
-# Checkpoints
-parser.add_argument('-c', '--checkpoint', default='checkpoint', type=str, metavar='PATH',
-                    help='path to save checkpoint (default: checkpoint)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
 # Architecture
-parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet') # ,
-#                     choices=model_names,
-#                     help='model architecture: ' +
-#                         ' | '.join(model_names) +
-#                         ' (default: resnet18)')
+parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet') 
 parser.add_argument('--depth', type=int, default=20, help='Model depth.')
 parser.add_argument('--block-name', type=str, default='BasicBlock',
                     help='the building block for Resnet and Preresnet: BasicBlock, Bottleneck (default: Basicblock for cifar10/cifar100)')
-parser.add_argument('--cardinality', type=int, default=8, help='Model cardinality (group).')
-parser.add_argument('--widen-factor', type=int, default=4, help='Widen factor. 4 -> 64, 8 -> 128, ...')
-parser.add_argument('--growthRate', type=int, default=12, help='Growth rate for DenseNet.')
-parser.add_argument('--compressionRate', type=int, default=2, help='Compression Rate (theta) for DenseNet.')
-# Miscs
+
+# Model grow
+parser.add_argument('--grow', type=str2bool, const=True, default=False, nargs='?', help='Time to grow up!')
+parser.add_argument('--mode', type=str, choices=['adapt', 'fixed'], default='adapt', help='The growing mode: adaptive to errs, or fixed at some epochs')
+parser.add_argument('--grow-epoch', type=str, nargs='*', default=['60', '110'], help='Duplicate the model at these epochs. Required if mode = fixed.')
+parser.add_argument('--max-depth', type=int, default=74, help='Max model depth. Required if mode = adapt.')
+parser.add_argument('--window', type=int, default=3, help='Smooth scope of truncated err estimation. Required if mode = adapt.')
+parser.add_argument('--backtrack', type=int, default=30, help='History that base err tracked back to.  Required if mode = adapt.')
+parser.add_argument('--threshold', type=float, default=1.1, help='Err trigger threshold for growing.  Required if mode = adapt.')
+parser.add_argument('--reserve', type=int, default=20, help='Reserved epochs for final model')
+parser.add_argument('--scale-stepsize', type=str2bool, const=True, default=False, nargs='?', help='Scale the residual by stepsize?')
+
+# Trace model state
+parser.add_argument('--hooker', type=str, choices=['None', 'Model', 'Lip'], default='Model', help='Hooker on model to output some info')
+parser.add_argument('--trace', type=str, nargs='+', default=['norm'], help='Trace and output some intermediate products.')
+
+# others
+parser.add_argument('-c', '--checkpoint', default='checkpoint', type=str, metavar='PATH',
+                    help='path to save checkpoint (default: checkpoint)')
 parser.add_argument('--debug-batch-size', type=int, default=0, help='number of training batches for quick check. default: 0 - no debug')
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-#Device options
 parser.add_argument('--gpu-id', default='7', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 
-#growth
-parser.add_argument('--grow', type=str2bool, const=True, default=False, nargs='?', help='Let us grow!')
-parser.add_argument('--mode', type=str, choices=['adapt', 'fixed'], default='adapt', help='The growing mode: adaptive to errs, or fixed at some epochs')
-# todo
-parser.add_argument('--grow-atom', type=str, choices=['block', 'layer', 'model'], default='block', help='blockwise, layerwise or modelwise?')
-parser.add_argument('--err-atom', type=str, choices=['block', 'layer', 'model'], default='block', help='Measure errs in block, layer or model level?')
-parser.add_argument('--grow-operation', type=str, choices=['duplicate', 'plus'], default='duplicate', help='duplicate or plus?')
-parser.add_argument('--grow-epoch', type=str, nargs='*', default=['60', '110'], help='Duplicate the model at these epochs. Required if mode = fixed.')
-parser.add_argument('--max-depth', type=int, default=74, help='Max model depth. Required if mode = adapt.')
-parser.add_argument('--window', type=int, default=3, help='Smooth scope of truncated err estimation. Required if mode = adapt.')
-parser.add_argument('--reserve', type=int, default=20, help='Reserved epochs for final model')
-parser.add_argument('--backtrack', type=int, default=30, help='History that base err tracked back to.  Required if mode = adapt.')
-parser.add_argument('--threshold', type=float, default=1.1, help='Err trigger threshold for growing.  Required if mode = adapt.')
-parser.add_argument('--scale', type=str2bool, const=True, default=True, nargs='?', help='Scale the residual by activations? Scale the acceleration by residuals?')
-parser.add_argument('--scale-stepsize', type=str2bool, const=True, default=False, nargs='?', help='Scale the residual by stepsize?')
-# trace
-# parser.add_argument('--hook', type=str2bool, const=True, default=True, nargs='?', help='Hook model to output some info')
-parser.add_argument('--hooker', type=str, choices=['None', 'Model', 'Lip'], default='Model', help='Hooker on model to output some info')
-parser.add_argument('--trace', type=str, nargs='+', default=['norm'], help='Trace and output some intermediate products.')
 
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
@@ -162,57 +144,14 @@ def solve_multi(min_step, num_grows, epochs):
     raise RuntimeError('solver failed!')
 
 if args.mode == 'fixed':
-    assert args.grow_atom == 'model', 'require model level grow for fixed!'
-    if args.grow_epoch[0].isdigit():
-        assert all([s.isdigit() for s in args.grow_epoch]), 'provide several int milestones'
-        args.grow_epoch = [int(s) for s in args.grow_epoch]
-    else:
-        assert len(args.grow_epoch) == 1, 'otherwise choose mode: even, cold, warm'
-        assert args.max_depth, 'max depth has to be provided for automatically scheduled grow!'
-        schedule_mode = args.grow_epoch[0]
-        assert schedule_mode in ['even', 'cold', 'warm'], 'unexpected mode %s!' % args.grow_epoch[0]
-        nb = get_nbpl(args.depth)
-        nb_max = get_nbpl(args.max_depth)
-        if args.grow_operation == 'duplicate':
-            assert nb_max % nb == 0
-            assert is_powerOfTwo(nb_max // nb)
-            num_grows = int(math.log2(nb_max / nb))
-        elif args.grow_operation == 'plus':
-            num_grows = nb_max - nb
-        else:
-            raise KeyError(args.grow_operation)
-        if schedule_mode == 'even':
-            assert args.epochs > num_grows, '# epochs should be greater than # grows!'
-            step = args.epochs // (num_grows + 1)
-            args.grow_epoch = list(range(step, args.epochs, step))
-            if (args.epochs - args.grow_epoch[-1]) < step: args.grow_epoch.pop()
-        elif schedule_mode == 'cold':
-            min_step = 5
-            multi = solve_multi(min_step, num_grows, args.epochs)
-            args.grow_epoch = list(map(int, itertools.accumulate([min_step*(multi**i) for i in range(num_grows+1)][::-1])))
-            args.grow_epoch.pop()
-        elif schedule_mode == 'warm':
-            min_step = 5
-            multi = solve_multi(min_step, num_grows, args.epochs)
-            args.grow_epoch = list(map(int, itertools.accumulate([min_step*(multi**i) for i in range(num_grows+1)])))
-            args.grow_epoch.pop()
-        else:
-            raise KeyError(scedule_mode)
-
-    if args.grow_operation == 'duplicate':
-        assert get_nbpl(args.depth) * 2**(len(args.grow_epoch)) == get_nbpl(args.max_depth), '# grows untally with depth by %s! depth: %i, max-depth: %i, # grows: %i' % (args.grow_operation, args.depth, args.max_depth, len(args.grow_epoch))
-    elif args.grow_operation == 'plus':
-        assert get_nbpl(args.depth) + len(args.grow_epoch) == get_nbpl(args.max_depth), '# grows untally with depth by %s! depth: %i, max-depth: %i, # grows: %i' % (args.grow_operation, args.depth, args.max_depth, len(args.grow_epoch))
-    else:
-        raise KeyError(args.grow_operation)
+    assert all([s.isdigit() for s in args.grow_epoch]), 'provide several int milestones'
+    args.grow_epoch = [int(s) for s in args.grow_epoch]
 
 if args.mode == 'adapt':
     assert args.max_depth, 'require max depth for adaptive mode'
 
 # Validate dataset
-# assert args.dataset == 'cifar10' or args.dataset == 'cifar100', 'Dataset can only be cifar10 or cifar100.'
-assert args.dataset in ['cifar10', 'cifar100', 'imagenet', 'tiny-imagenet']
-# assert args.backtrack > args.window, 'backtrack should at least greater than window size.'
+assert args.dataset in ['cifar10', 'cifar100', 'imagenet', 'tiny-imagenet'], args.dataset
 
 # Use CUDA
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
@@ -221,9 +160,6 @@ if use_cuda:
     device = torch.device("cuda:0")
 else:
     device = "cpu"
-# ---------------------
-# use_cuda = False
-# ---------------------
 
 # Random seed
 if args.manualSeed is None:
@@ -233,6 +169,7 @@ torch.manual_seed(args.manualSeed)
 if use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
 
+# save best accuracy
 best_val_acc = 0  # best test accuracy
 
 def main():
