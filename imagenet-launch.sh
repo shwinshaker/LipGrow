@@ -5,7 +5,7 @@
 ##################################################
 
 #!/bin/bash
-debug=10 # 0 
+debug=0 # 0 
 
 model='resnet' # "preresnet" 
 dataset="tiny-imagenet"
@@ -14,7 +14,7 @@ grow=true
 hooker='Lip'
 
 # ------ grow setting -----------
-mode='fixed' # 'adapt' # fixed
+mode='adapt' # fixed
 maxdepth=66 # if mode == adapt
 
 # ----- fixed setting ---------------
@@ -34,7 +34,7 @@ epochs=90
 lr='0.5' # initial learning rate
 scheduler='adacosine' # learning rate scheduler: cosine / constant / step 
 if [ "$grow" = true ]; then
-    # if grow, no need to set learning rate scheduler
+    # if grow, no need to set learning rate scheduler, because learning rate is always reset at grow
     schedule=() 
 else
     # otherwise, set learning rate scheduler (if using step scheduler)
@@ -55,7 +55,7 @@ if (( debug > 0 )); then
     # debug mode - train a few epochs
     epochs=10
     schedule=() # 2 7)
-    dupEpoch=(3 5)
+    dupEpoch=()
     thresh='1.0'
     reserve=2
     window=3
