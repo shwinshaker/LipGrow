@@ -87,6 +87,7 @@ if args.mode == 'adapt':
 
 if args.scheduler == 'adacosine':
     assert(not args.schedule), 'no need to set schedule for adaptive scheduler'
+    assert args.grow, 'adacosine scheduler is only appropriate for adaptive training, consider using cosine with restarts for vanilla training'
 
 assert args.dataset in ['cifar10', 'cifar100', 'imagenet', 'tiny-imagenet'], args.dataset
 
