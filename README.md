@@ -26,7 +26,7 @@ An adaptive training algorithm for residual network based on model Lipschitz
   ```
 
 ## Issues
-* ResNet architecture for ImageNet is slightly from the published one. The uneven blocks in every subnetworks requires different grow scheduler for each subnetwork, which requires some extra work
+* ResNet architecture for ImageNet is slightly from the published one. The uneven number of blocks in every subnetworks requires a different grow scheduler for each subnetwork, which requires some extra work
 
 ## Citation
 
