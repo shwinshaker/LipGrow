@@ -1,6 +1,9 @@
 # LipGrow
 An adaptive training algorithm for residual network based on model Lipschitz
 
+* Our algorithm reduces about 50% time when training ResNet-74 on CIFAR-10
+<p align="center"><img width="60%" src="assets/demo.png"/></p>
+
 ## Install
 * Install [PyTorch](http://pytorch.org/)
 * Clone recursively
@@ -9,7 +12,7 @@ An adaptive training algorithm for residual network based on model Lipschitz
   ```
 
 ## Setup
-* By default, build a `./data` directory including the datasets 
+* By default, build a `./data` directory which includes the datasets 
 * By default, build a `./checkpoints` directory to save the training output
 
 ## Training
