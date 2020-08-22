@@ -9,12 +9,12 @@ debug=0 # 0 #
 
 model='resnet' # "preresnet" 
 dataset='cifar10' # cifar10
-depth=20 # 74 # 3*2 * num_blocks_per_layer + 2
+depth=20 # 3*2 * num_blocks_per_layer + 2
 grow=true
 hooker='Lip'
 
 # ------ grow setting -----------
-mode='fixed' # 'adapt' # fixed
+mode='adapt' # fixed
 maxdepth=74 # if mode == adapt
 
 # ----- fixed setting ---------------
@@ -32,7 +32,7 @@ window=10 # smooth window
 # ----- regular hypers -----------
 epochs=164
 lr='0.5' # initial learning rate
-scheduler='adacosine' # learning rate scheduler: cosine / constant / step
+scheduler='adacosine' # 'adacosine' # learning rate scheduler: cosine / constant / step
 if [ "$grow" = true ]; then
     # if grow, no need to set learning rate scheduler
     schedule=() 
@@ -45,7 +45,7 @@ weight_decay='1e-4'
 train_batch='128'
 test_batch='100'
 
-gpu_id='5' # For multiple gpu training, set like '1,2'
+gpu_id='2' # select gpu; For multiple gpu training, set like '1,2'
 workers=4 # 4 * num gpus; or estimate by throughput
 log_file="train.out"
 suffix=""
