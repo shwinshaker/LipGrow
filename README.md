@@ -25,6 +25,11 @@ An adaptive training algorithm for residual network based on model Lipschitz
   ./imagenet-launch.sh
   ```
 
+* Recipes
+    * For vanilla training, set `grow=false`
+    * For training with fixed grow epochs, set `grow='fixed'`, and provide grow epochs `dupEpoch`
+    * For adaptive training, set `grow='adapt'`, and use adaptive cosine learning rate scheduler `scheduler='adacosine'`
+
 ## Issues
 * ResNet architecture for ImageNet is slightly from the published one. The uneven number of blocks in every subnetworks requires a different grow scheduler for each subnetwork, which requires some extra work
 
