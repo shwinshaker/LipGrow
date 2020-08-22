@@ -31,7 +31,7 @@ An adaptive training algorithm for residual network based on model Lipschitz
     * For adaptive training, set `grow='adapt'`, and use adaptive cosine learning rate scheduler `scheduler='adacosine'`
 
 ## Issues
-* ResNet architecture for ImageNet is slightly from the published one. The uneven number of blocks in every subnetworks requires a different grow scheduler for each subnetwork, which requires some extra work
+* ResNet architecture for ImageNet is slightly from the published one. The uneven number of blocks in every subnetwork requires a different grow scheduler for each subnetwork, which demands some extra work
 
 ## Citation
 

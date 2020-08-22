@@ -13,13 +13,12 @@ __all__ = ['StateDict', 'ModelArch']
 class StateDict:
 
     """
-    parallel model: prefix = module.
-    cpu model: prefix = ''
-    """
+        An extension of the pytorch model statedict to allow layer insertion
 
-    """
-        todo: num_layers can be infered from the number of blocks startswith layers
-            like what we do in utils/hooker
+            parallel model: prefix = module.
+            cpu model: prefix = ''
+
+            todo: num_layers can be inferred from the number of blocks startswith layers, like what we do in utils/hooker
     """
 
     def __init__(self, model, operation='duplicate', atom='block', special_first=True, num_layers=3):
@@ -94,16 +93,10 @@ class StateDict:
 
         self.state_dict = new_dict
 
-        # return new_dict
-
     def duplicate_block(self, l, b):
 
-        # print('> now duplicate %i-%i' % (l,b))
         if self.special_first:
             if b == 0:
-                # print('> This is the first block, copy from back!')
-                # this block changes the feature map
-                # copy the one after it
                 self.insert_before(l, b+1, self.get_block(l, b+1))
                 return
 
@@ -127,9 +120,7 @@ class StateDict:
         # duplicate
         for l, layer in enumerate(block_indices):
             for b in layer:
-                # print('now duplicating: layer %i - block %i' % (l, b))
                 self.duplicate_block(l, b)
-                # test consecutive indices
             self.get_block_indices_in_layer(l)
 
     def duplicate_layer(self, l):
@@ -156,52 +147,15 @@ class StateDict:
     def plus_model(self):
         self.plus_layers(range(self.num_layers))
 
-    def scale_weight(self, alpha=1): # 1): # 1.41421356237):
+    def scale_weight(self, alpha=1.41421356237):
+        """
+            scale the weights in linear modules after growing to implicitly reduce the stepsize
+                we found that scale by sqrt(2) is slightly better in performance, not sure why
+        """
         for key in self.state_dict:
-            # new scaling test for preresnet
-            # if 'layer' in key and ('conv' in key or 'bn' in key): # if preresnet
-            #     print('preresnet preclaimed!')
-            #     # bn - relu - conv - bn - relu - conv
-            #     if 'weight' in key or 'bias' in key:
-            #         self.state_dict[key] /= alpha
-            #         # self.state_dict[key] /= 1.189207115003
-            #     if 'running_var' in key:
-            #         self.state_dict[key] /= alpha**2
-
-            if 'layer' in key and ('conv' in key or 'bn2' in key): # if preresnet
-                # print('preresnet preclaimed!')
+            if 'layer' in key and ('conv' in key or 'bn2' in key):
                 if 'weight' in key or 'bias' in key:
-                    self.state_dict[key] /= 1.41421356237
-
-            # if 'layer' in key and ('conv' in key or 'bn' in key): # if resnet
-            #     print('resnet preclaimed!')
-            #     if 'weight' in key or 'bias' in key:
-            #         self.state_dict[key] /= 2 # 1.41421356237
-            # should include bn, running var cancel out the halve of the conv before it
-            #   at training, running var is not used, therefore it's true
-            #   only rescale the second bn
-            # if 'layer' in key and 'conv' in key:
-            # if 'layer' in key and 'bn' in key:
-                
-
-    # def grow(self, indices=None):
-
-    #     # assert atom == grow_atom, 'ensure atoms are the same!'
-
-    #     if self.atom == 'blocks':
-    #         self.duplicate_blocks(indices)
-    #         return 
-
-    #     if self.atom == 'layer':
-    #         self.duplicate_layers(indices)
-    #         return 
-
-    #     if self.atom == 'model':
-    #         self.duplicate_model()
-    #         return 
-
-    #     raise KeyError('atom %s  not supported' % atom)
-
+                    self.state_dict[key] /= alpha
 
     def get_block_indices_in_layer(self, l):
         block_indices = []
@@ -232,9 +186,10 @@ class StateDict:
 
 class ModelArch:
 
-    '''
-        arch: stepsize in each block in each layer
-    '''
+    """
+        A monitor of the archiecture of the ResNet model, i.e. the number of layers in each subnetwork
+            arch: stepsize in each block in each layer
+    """
 
     # block remainder
     __rmd = 2

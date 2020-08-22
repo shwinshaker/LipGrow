@@ -25,20 +25,6 @@ class BasicBlock(nn.Module):
     def __init__(self, inplanes, planes, stride=1, downsample=None, stepsize=1):
         super(BasicBlock, self).__init__()
         self.relu = nn.ReLU(inplace=True)
-
-        # self.conv1 = conv3x3(inplanes, planes//2, stride)
-        # self.bn1 = nn.BatchNorm2d(planes//2)
-        # self.conv11 = conv3x3(planes//2, planes//4, stride)
-        # self.bn11 = nn.BatchNorm2d(planes//4)
-        # self.conv12 = conv3x3(planes//4, planes//8, stride)
-        # self.bn12 = nn.BatchNorm2d(planes//8)
-        # self.conv2 = conv3x3(planes//8, planes//4, stride)
-        # self.bn2 = nn.BatchNorm2d(planes//4)
-        # self.conv21 = conv3x3(planes//4, planes//2, stride)
-        # self.bn21 = nn.BatchNorm2d(planes//2)
-        # self.conv22 = conv3x3(planes//2, planes, stride)
-        # self.bn22 = nn.BatchNorm2d(planes)
-
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -53,24 +39,6 @@ class BasicBlock(nn.Module):
     def forward(self, x):
         out = x
 
-        # residual = self.conv1(x)
-        # residual = self.bn1(residual)
-        # residual = self.relu(residual)
-        # residual = self.conv11(residual)
-        # residual = self.bn11(residual)
-        # residual = self.relu(residual)
-        # residual = self.conv12(residual)
-        # residual = self.bn12(residual)
-        # residual = self.relu(residual)
-        # residual = self.conv2(residual)
-        # residual = self.bn2(residual)
-        # residual = self.relu(residual)
-        # residual = self.conv21(residual)
-        # residual = self.bn21(residual)
-        # residual = self.relu(residual)
-        # residual = self.conv22(residual)
-        # residual = self.bn22(residual)
-
         residual = self.conv1(x)
         residual = self.bn1(residual)
         residual = self.relu(residual)
@@ -81,9 +49,6 @@ class BasicBlock(nn.Module):
         residual *= self.stepsize
         if self.downsample is not None:
             out = self.downsample(x)
-
-        # out += residual
-        # out = self.relu(out)
 
         return self.relu(out + residual)
 
