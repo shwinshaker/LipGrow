@@ -5,7 +5,7 @@
 ##################################################
 
 #!/bin/bash
-debug=0 # 
+debug=0 # 0 # 
 
 model='resnet' # "preresnet" 
 dataset='cifar10' # cifar10
@@ -14,31 +14,24 @@ grow=true
 hooker='Lip'
 
 # ------ grow setting -----------
-mode='adapt' # fixed
-maxdepth=74 # 50
-grow_atom='model' # 'layer'
-operation='duplicate' # 'plus' 
-trace=('norm') #  'pc2')
-
-# ------ adapt setting --------------
-scale_down=True # scale the residual by activations
-err_atom='model' # 'layer'
-thresh='1.4' 
-backtrack=3
-reserve=30
-window=10
-trigger='TolSmoothMeanLip' # the stats of Lipschitz: 'TolSmoothMaxLip'
+mode='fixed' # 'adapt' # fixed
+maxdepth=74 # if mode == adapt
 
 # ----- fixed setting ---------------
+dupEpoch=()
 if [ "$grow" = true ] && [ "$mode" = 'fixed' ]; then
-    dupEpoch=(60 110) # grow at
-else
-    dupEpoch=()
+    dupEpoch=(60 110) # grow at xx epochs
 fi
+
+# ------ adapt setting --------------
+thresh='1.4' # threshold to trigger grow
+reserve=30 # reserved epochs for final model
+window=10 # smooth window
+
 
 # ----- regular hypers -----------
 epochs=164
-lr='0.1' # initial learning rate
+lr='0.5' # initial learning rate
 scheduler='adacosine' # learning rate scheduler: cosine / constant / step
 if [ "$grow" = true ]; then
     # if grow, no need to set learning rate scheduler
@@ -52,22 +45,18 @@ weight_decay='1e-4'
 train_batch='128'
 test_batch='100'
 
-gpu_id=$1 # For multiple gpu training, set like '1,2'
+gpu_id='5' # For multiple gpu training, set like '1,2'
 workers=4 # 4 * num gpus; or estimate by throughput
 log_file="train.out"
-if [ "$grow" = true ];then
-    suffix="" # this seems better, though not right in theory
-else
-    suffix=""
-fi
+suffix=""
 prefix="Batch-Lip"
 
 if (( debug > 0 )); then
     # debug mode - train a few epochs
     epochs=10
-    schedule=(2 7)
-    thresh='1.4'
-    backtrack=1
+    schedule=() # 2 7)
+    dupEpoch=(3 5)
+    thresh='1.0'
     reserve=2
     window=3
 fi
@@ -81,7 +70,7 @@ if [ "$grow" = true ]; then
 	    dir="$model-$depth-"$mode-"$(IFS='-'; printf '%s' "${dupEpoch[*]}")"-$operation-$scheduler-"$(IFS='-'; printf '%s' "${schedule[*]}")"-"lr=${lr//'.'/'-'}"
 	fi
     else
-        dir="$model-$depth-$mode-$maxdepth-$operation-$scheduler"-"lr=${lr//'.'/'-'}-window=$window-reserve=$reserve-thresh=${thresh//'.'/'-'}-trigger=$trigger"
+        dir="$model-$depth-$mode-$maxdepth-$operation-$scheduler"-"lr=${lr//'.'/'-'}-window=$window-reserve=$reserve-thresh=${thresh//'.'/'-'}"
     fi
 else
     if [ "$scheduler" = 'constant' ]; then
@@ -90,8 +79,6 @@ else
 	dir="$model-$depth-$scheduler-"$(IFS='-'; printf '%s' "${schedule[*]}")"-lr=${lr//'.'/'-'}"
     fi
 fi
-
-### -------------------------------------------- caution!
 
 if [ "$scheduler" = step ];then
     dir="$dir-gamma=${gamma//'.'/'-'}"
@@ -116,11 +103,10 @@ while [ -d $checkpoint ]; do
     echo '-----------------------------------------------------------------------------------------'
     ls $checkpoint
     tail -n 5 $checkpoint/train.out
-    read -p "Checkpoint path $checkpoint already exists. Delete[d], Rename[r], Continue[c] or Terminate[*]? " ans
+    read -p "Checkpoint path $checkpoint already exists. Delete[d], Rename[r], or Terminate[*]? " ans
     case $ans in
 	d ) rm -rf $checkpoint; break;;
 	r ) checkpoint=${checkpoint%%_*}"_"$i;;
-	c ) log_file="resume.out"; break;;
 	* ) exit;;
     esac
     (( i++ ))
@@ -131,21 +117,21 @@ fi
 echo "Checkpoint path: "$checkpoint
 echo 'Save main script to dir..'
 cp launch.sh $checkpoint
-cp train.py.g $checkpoint
+cp train.py $checkpoint
 cp -r utils $checkpoint
 cp -r models $checkpoint
 
 if [ "$grow" = true ]; then
     if (( debug > 0 )); then
-	python train.py.g -d $dataset -a $model --grow --scale-stepsize $scale_down --depth $depth --mode $mode --max-depth $maxdepth --epochs $epochs --grow-epoch "${dupEpoch[@]}" --threshold $thresh --backtrack $backtrack --window $window --reserve $reserve --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug --trace "${trace[@]}" 2>&1 | tee "$checkpoint""/"$log_file
+	python train.py -d $dataset -a $model --grow --depth $depth --mode $mode --max-depth $maxdepth --epochs $epochs --grow-epoch "${dupEpoch[@]}" --threshold $thresh --window $window --reserve $reserve --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug 2>&1 | tee "$checkpoint""/"$log_file
     else
-	python train.py.g -d $dataset -a $model --grow --scale-stepsize $scale_down --depth $depth --mode $mode -max-depth $maxdepth --epochs $epochs --grow-epoch "${dupEpoch[@]}" --threshold $thresh --backtrack $backtrack --window $window --reserve $reserve --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug --trace "${trace[@]}" > "$checkpoint""/"$log_file 2>&1 &
+	python train.py -d $dataset -a $model --grow --depth $depth --mode $mode --max-depth $maxdepth --epochs $epochs --grow-epoch "${dupEpoch[@]}" --threshold $thresh --window $window --reserve $reserve --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug > "$checkpoint""/"$log_file 2>&1 &
     fi
 else 
     if (( debug > 0 )); then
-	python train.py.g -d $dataset -a $model --depth $depth --epochs $epochs --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug --trace "${trace[@]}" | tee "$checkpoint""/"$log_file
+	python train.py -d $dataset -a $model --depth $depth --epochs $epochs --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug | tee "$checkpoint""/"$log_file
     else
-	python train.py.g -d $dataset -a $model --depth $depth --epochs $epochs --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug --trace "${trace[@]}" > "$checkpoint""/"$log_file 2>&1 &
+	python train.py -d $dataset -a $model --depth $depth --epochs $epochs --hooker $hooker --scheduler $scheduler --schedule "${schedule[@]}" --gamma $gamma --wd $weight_decay --lr $lr --train-batch $train_batch --test-batch $test_batch --checkpoint "$checkpoint" --gpu-id "$gpu_id" --workers $workers --debug-batch-size $debug > "$checkpoint""/"$log_file 2>&1 &
     fi
 fi
 pid=$!

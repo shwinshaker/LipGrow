@@ -5,7 +5,7 @@ from .logger import *
 from .eval import *
 from .hooker import *
 from .trigger import *
-from .torch_extensions import *
+from .grower import *
 from .scheduler import *
 
 # progress bar

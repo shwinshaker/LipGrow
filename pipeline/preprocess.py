@@ -2,6 +2,8 @@ import torch.utils.data as data
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
+import os
+
 
 __all__ = ['get_loaders']
 
@@ -115,7 +117,7 @@ def get_loaders(dataset='cifar10', download=False,
         raise KeyError(dataset)
 
 
-    return trainloader, valloader, testloader
+    return trainloader, valloader, testloader, num_classes
 
 
 

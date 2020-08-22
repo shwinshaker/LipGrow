@@ -11,13 +11,14 @@ import time
 import math
 import argparse
 
+import torch
 import torch.nn as nn
 import torch.nn.init as init
 from torch.autograd import Variable
 
 __all__ = ['get_mean_and_std', 'init_params', 'mkdir_p',
            'AverageMeter', 'str2bool', 'reduce_list', 'is_powerOfTwo',
-           'save_checkpoint']
+           'save_checkpoint', 'print_arguments']
 
 
 def get_mean_and_std(dataset):
@@ -72,6 +73,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def is_double_list(li):
+    '''check if list is nested'''
     if not li:
         return False
     if any([isinstance(e, list) for e in li]):
@@ -126,3 +128,44 @@ def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='checkpoin
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth.tar'))
+
+def print_arguments(args):
+    '''print input arguments'''
+
+    print("     -------------------------- dataset -----------------------------------------")
+    print("     dataset: %s" % args.dataset)
+
+    print("     --------------------------- training ----------------------------------")
+    print("     Epochs: %i" % args.epochs)
+    print("     Train batch size: %i" % args.train_batch)
+    print("     Test batch size: %i" % args.test_batch)
+    print("     Learning rate: %g" % args.lr)
+    print("     Momentum: %g" % args.momentum)
+    print("     Weight decay: %g" % args.weight_decay)
+    print("     Learning rate scheduler: %s" % args.scheduler)  # 'multi-step cosine annealing schedule'
+    if args.scheduler in ['step', 'cosine', 'adacosine']:
+        print("     Learning rate schedule - milestones: ", args.schedule)
+    if args.scheduler in ['step', 'expo', 'adapt']:
+        print("     Learning rate decay factor: %g" % args.gamma)
+    print("     gpu id: %s" % args.gpu_id)
+    print("     num workers: %i" % args.workers)
+    print("     hooker: ", args.hooker)
+    print("     --------------------------- model ----------------------------------")
+    print("     Model: %s" % args.arch)
+    print("     depth: %i" % args.depth)
+    print("     block: %s" % args.block_name)
+    if args.grow:
+        if not args.arch in ['resnet', 'preresnet']:
+            raise KeyError("model not supported for growing yet.")
+        print("     --------------------------- grow ----------------------------------")
+        print("     grow mode: %s" % args.mode)
+        if args.mode == 'fixed':
+            print("     grow milestones: ", args.grow_epoch)
+        else:
+            print("     max depth: %i" % args.max_depth)
+            print("     smoothing scope: %i" % args.window)
+            print("     reserved epochs: %i" % args.reserve)
+    if args.debug_batch_size:
+        print("     -------------------------- debug ------------------------------------")
+        print("     debug batches: %i" % args.debug_batch_size)
+    print("     ---------------------------------------------------------------------")

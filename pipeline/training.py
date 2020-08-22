@@ -1,9 +1,10 @@
+import torch
 from utils import Bar, Logger, AverageMeter, accuracy
 import time
 
 __all__ = ['train', 'test']
 
-def train(trainloader, model, criterion, optimizer, epoch, use_cuda, debug_batch_size=0):
+def train(trainloader, model, criterion, optimizer, debug_batch_size=0, device='cuda:0'):
     # switch to train mode
     model.train()
 
@@ -64,10 +65,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda, debug_batch
     return (losses.avg, top1.avg)
 
 
-def test(testloader, model, criterion, epoch, use_cuda):
-    '''
-        `epoch` is never used, but probably will later, idk
-    '''
+def test(testloader, model, criterion, device='cuda:0'):
 
     batch_time = AverageMeter()
     data_time = AverageMeter()

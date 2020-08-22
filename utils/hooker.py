@@ -226,26 +226,24 @@ class LayerHooker:
 
 
 class LipHooker:
-    # named_children -> immediate children
+    '''
+        Lipschitz hooker
+    '''
 
-    def __init__(self, model_name, dpath, resume=False, device=None, **kwargs):
+    def __init__(self, model_name, dpath, device=None, **kwargs):
 
         self.dpath = dpath
-        self.resume = resume
         self.device = device # TODO: device gather for multi-gpu training
 
         # self.logger = None
         self.logger = Logger(os.path.join(dpath, 'Lipschitz.txt'))
-        if not resume:
-            self.logger.set_names(['epoch', 'max', 'min', 'median', 'mean', 'std', 'overhead(secs)'])
+        self.logger.set_names(['epoch', 'max', 'min', 'median', 'mean', 'std', 'overhead(secs)'])
 
         self.logger_conv = Logger(os.path.join(dpath, 'Lipschitz_conv.txt'))
-        if not resume:
-            self.logger_conv.set_names(['epoch', 'max', 'min', 'median', 'mean', 'std', 'overhead(secs)'])
+        self.logger_conv.set_names(['epoch', 'max', 'min', 'median', 'mean', 'std', 'overhead(secs)'])
 
         self.logger_bn = Logger(os.path.join(dpath, 'Lipschitz_bn.txt'))
-        if not resume:
-            self.logger_bn.set_names(['epoch', 'max', 'min', 'median', 'mean', 'std', 'overhead(secs)'])
+        self.logger_bn.set_names(['epoch', 'max', 'min', 'median', 'mean', 'std', 'overhead(secs)'])
 
         # self.history = []
         self.node_logger = None
@@ -267,8 +265,7 @@ class LipHooker:
         num_blocks_per_layer = len(self.hookers[0].hookers)
         self.node_logger = Logger(os.path.join(self.dpath, 'Lipschitz_history_%i.txt' % num_blocks_per_layer))
         node_names = [hooker.name for layerHooker in self.hookers for blockHooker in layerHooker.hookers for hooker in blockHooker.hookers]
-        if not self.resume:
-            self.node_logger.set_names(['epoch'] + node_names)
+        self.node_logger.set_names(['epoch'] + node_names)
             
 
     # still use 'output' here to conform with original protocol
@@ -279,11 +276,6 @@ class LipHooker:
         start = time.time()
         lips = torch.cat([hooker.lip() for hooker in self.hookers], dim=0)
         elapse = time.time() - start
-
-        # if not self.logger:
-        #     self.logger = Logger(os.path.join(self.dpath, 'Lipschitz.txt'))
-        #     if not self.resume:
-        #         self.logger.set_names(['epoch'] + ['Lip'] * len(lips))
 
         self.logger.append([epoch, torch.max(lips), torch.min(lips), torch.median(lips), torch.mean(lips), torch.std(lips), elapse])
         
